@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +16,7 @@ import (
 type XraftNodeConfig struct {
 	ClusterID 		int
 	GroupPort		int
+	BaseGroupPort	int
 	ServicePort		int
 	InterceptorPort int
 	SchedulerPort	int
@@ -31,8 +31,6 @@ type XraftNode struct {
 	logger		*Logger
 	process		*exec.Cmd
 	config		*XraftNodeConfig
-	ctx			context.Context
-	cancel		func() error
 
 	stdout		*bytes.Buffer
 	stderr		*bytes.Buffer
@@ -44,42 +42,29 @@ func NewXraftNode(config *XraftNodeConfig, logger *Logger) *XraftNode {
 		logger: 	logger,
 		process:	nil,
 		config:		config,
-		ctx:		nil,
-		cancel:		func() error { return nil },
 		stdout:		nil,
 		stderr: 	nil,
 	}
 }
 
 func (x *XraftNode) Create() {
-	groupConfig := ""
-	for i := 1; i <= x.config.NumNodes; i++ {
-		if i > 1 {
-			groupConfig += " "
-		}
-		groupConfig += fmt.Sprintf("%d,localhost,%d", i, x.config.GroupPort + i - 1)
-	}
-	 
-	serverArgs := []string {
-		"-gc", groupConfig, 
+	serverArgs := []string { 
+		x.config.BinaryPath,
 		"-m", "group-member",
 		"-i", x.ID,
 		"-p2", strconv.Itoa(x.config.ServicePort),
 		"-ip", strconv.Itoa(x.config.InterceptorPort),
 		"-sp", strconv.Itoa(x.config.SchedulerPort),
 		"-d", x.config.WorkDir,
+		"-gc",
+	}
+	for i := 1; i <= x.config.NumNodes; i++ {
+		serverArgs = append(serverArgs, fmt.Sprintf("%d,localhost,%d", i, x.config.BaseGroupPort + i))
 	}
 	x.logger.With(LogParams{"server-args": strings.Join(serverArgs, "")}).Debug("Creating server...")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	x.process = exec.CommandContext(ctx, x.config.BinaryPath, serverArgs...)
-
-	x.ctx = ctx
-	x.cancel = func ()  error {
-		err := x.process.Process.Signal(os.Interrupt)
-		cancel()
-		return err
-	}
+	x.process = exec.Command("bash", serverArgs...)
+	x.process.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if x.stdout == nil {
 		x.stdout = new(bytes.Buffer)
@@ -89,15 +74,14 @@ func (x *XraftNode) Create() {
 	}
 	x.process.Stdout = x.stdout
 	x.process.Stderr = x.stderr
-	x.process.Cancel = x.cancel
 }
 
 func (x *XraftNode) Start() error {
-	if x.ctx == nil || x.process == nil {
+	x.logger.Debug("Starting node...")
+	x.Create()
+	if x.process == nil {
 		return errors.New("Xraft server not started.")
 	}
-
-	x.Create()
 	return x.process.Start()
 }
 
@@ -106,31 +90,28 @@ func (x *XraftNode) Cleanup() {
 }
 
 func (x *XraftNode) Stop() error {
-	if x.ctx == nil || x.process == nil {
+	x.logger.Debug("Stopping node...")
+	if x.process == nil {
 		return errors.New("Xraft server not started.")
 	}
-	select {
-	case <- x.ctx.Done():
-		return errors.New("Xraft server already stopped.")
-	default:
-	}
-	x.cancel()
+	// done := make(chan error, 1)
+	// go func() {
+	// 	err := x.process.Wait()
+	// 	done <- err
+	// }()
 
-	done := make(chan error, 1)
-	go func() {
-		err := x.process.Wait()
-		done <- err
-	}()
-
-	var err error = nil
-	select {
-	case <- time.After(50 * time.Millisecond):
-		err = x.process.Process.Kill()
-	case err = <- done:
+	// var err error = nil
+	// select {
+	// case <- time.After(50 * time.Millisecond):
+	// 	err = x.process.Process.Kill()
+	// case err = <- done:
+	// }
+	
+	var err error
+	if x.process.Process != nil {
+		err = syscall.Kill(-x.process.Process.Pid, syscall.SIGKILL)
 	}
 
-	x.ctx = nil
-	x.cancel = func() error { return nil }
 	x.process = nil
 
 	return err
@@ -138,48 +119,15 @@ func (x *XraftNode) Stop() error {
 
 func (x *XraftNode) GetLogs() (string, string) {
 	if x.stdout == nil || x.stderr == nil {
+		x.logger.Debug("Nil stdout or stderr.")
 		return "", ""
 	}
 
 	return x.stdout.String(), x.stderr.String()
 }
 
-// func (x *XraftNode) Execute() error {
-// 	if x.ctx == nil || x.process == nil {
-// 		return errors.New("Xraft server not started.")
-// 	}
-// 	select {
-// 	case <- x.ctx.Done():
-// 		return errors.New("Xraft server already stopped.")
-// 	default:
-// 	}
-	
-// 	ctx, cancel := context.WithTimeout(context.Background(), 1 * time.Second)
-// 	defer cancel()
-// 	// TODO - client call
-// 	return nil
-// }
-
-// func (x *XraftNode) ExecuteAsync() error {
-// 	if x.ctx == nil || x.process == nil {
-// 		return errors.New("Xraft server not started.")
-// 	}
-// 	select {
-// 	case <- x.ctx.Done():
-// 		return errors.New("Xraft server already stopped.")
-// 	default:
-// 	}
-	
-// 	go func ()  {
-// 		ctx, cancel := context.WithTimeout(context.Background(), 1 * time.Second)
-// 		defer cancel()
-// 		// TODO - client call	
-// 	}()
-// 	return nil
-// }
-
 type ClusterConfig struct {
-	FuzzerType			string // TODO
+	FuzzerType			FuzzerType
 	ClusterID			int
 	NumNodes			int
 	XraftBinaryPath		string
@@ -187,7 +135,7 @@ type ClusterConfig struct {
 	BaseGroupPort		int
 	BaseServicePort		int
 	BaseInterceptorPort int
-	BaseSchedulerPort	int
+	SchedulerPort		int
 	WorkDir				string
 	LogLevel			string
 }
@@ -200,7 +148,7 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 		BaseGroupPort: c.BaseGroupPort,
 		BaseServicePort: c.BaseServicePort,
 		BaseInterceptorPort: c.BaseInterceptorPort,
-		BaseSchedulerPort: c.BaseSchedulerPort,
+		SchedulerPort: c.SchedulerPort,
 		WorkDir: c.WorkDir,
 		LogLevel: c.LogLevel,
 	}
@@ -214,7 +162,7 @@ func (c *ClusterConfig) SetDefaults() {
 		c.XraftClientPath = "../xraft-controlled/xraft-kvstore/target/xraft-kvstore-0.1.0-SNAPSHOT-bin/xraft-kvstore-0.1.0-SNAPSHOT/bin/xraft-kvstore-cli"
 	}
 	if c.WorkDir == "" {
-		c.WorkDir = fmt.Sprintf("output/%s/tmp/%d", c.FuzzerType, c.ClusterID)
+		c.WorkDir = fmt.Sprintf("output/%s/tmp/%d", c.FuzzerType.String(), c.ClusterID)
 	}
 	os.MkdirAll(c.WorkDir, 0777)
 
@@ -237,9 +185,10 @@ func (c*ClusterConfig) GetNodeConfig(id string) *XraftNodeConfig {
 	return &XraftNodeConfig{
 		ClusterID:			c.ClusterID, 		
 		GroupPort:			c.BaseGroupPort + idInt,	
+		BaseGroupPort:  	c.BaseGroupPort,
 		ServicePort:		c.BaseServicePort + idInt,		
 		InterceptorPort:	c.BaseInterceptorPort + idInt,
-		SchedulerPort:		c.BaseSchedulerPort,
+		SchedulerPort:		c.SchedulerPort,
 		NodeId:				id,
 		WorkDir: 			nodeWorkDir,
 		BinaryPath:			c.XraftBinaryPath,
@@ -250,7 +199,7 @@ func (c*ClusterConfig) GetNodeConfig(id string) *XraftNodeConfig {
 type Cluster struct {
 	Nodes	map[string]*XraftNode
 	Config	*ClusterConfig
-	Logger	*Logger
+	logger	*Logger
 	Client  *XraftClient
 }
 
@@ -259,33 +208,39 @@ func NewCluster(config *ClusterConfig, logger *Logger) *Cluster {
 	c := &Cluster{
 		Config: config,
 		Nodes: make(map[string]*XraftNode),
-		Logger: logger,
+		logger: logger,
 		Client: NewXraftClient(config.NumNodes, config.BaseServicePort, config.XraftClientPath),
 	}
 
 	for i := 1; i <= config.NumNodes; i++ {
 		nConfig := config.GetNodeConfig(strconv.Itoa(i))
-		c.Nodes[strconv.Itoa(i)] = NewXraftNode(nConfig, c.Logger.With(LogParams{"node": i}))
+		c.Nodes[strconv.Itoa(i)] = NewXraftNode(nConfig, c.logger.With(LogParams{"node": i}))
 	}
+	c.logger.Debug("Initialized cluster.")
 	return c
 }
 
 func (c *Cluster) Start() error {
+	c.logger.Debug("Starting cluster...")
 	for i := 1; i <= c.Config.NumNodes; i++ {
 		node := c.Nodes[strconv.Itoa(i)]
-		if err := node.Start(); err != nil {
-			return fmt.Errorf("Error starting node %d: %s", i, err)
-		}
+		node.Start()
+		// if err := node.Start(); err != nil {
+		// 	return fmt.Errorf("Error starting node %d: %s", i, err)
+		// }
 	}
 	return nil
 }
 
 func (c *Cluster) Destroy() error {
+	c.logger.Debug("Destroying cluster...")
 	var err error = nil
 	for _, node := range c.Nodes {
 		err = node.Stop()
 		node.Cleanup()
 	}
+
+	os.RemoveAll(c.Config.WorkDir)
 	return err
 }
 
@@ -300,47 +255,41 @@ func (c *Cluster) GetLogs() string {
 	for nodeID, node := range c.Nodes {
 		logLines = append(logLines, fmt.Sprintf("Logs for node: %s\n", nodeID))
 		stdout, stderr := node.GetLogs()
-		logLines = append(logLines, "----- Stdout -----", stdout, "----- Stderr -----", stderr, "\n\n")
+		logLines = append(logLines, "----- Stdout -----", stdout, "----- Stderr -----", stderr)
 	}
 	return strings.Join(logLines, "\n")
 }
 
 func (c *Cluster) SendRequest() {
+	c.logger.Debug("Sending client request...")
 	clientArgs := []string {
-		"-gc", c.Client.GroupConfig,
-		"-ic", "\"kvstore-set x 1\"",
+		c.Config.XraftClientPath,
+		"-gc",
 	}
-	process := exec.Command(c.Client.ClientBinary, clientArgs...)
+	for i := 1; i <= c.Config.NumNodes; i++ {
+		clientArgs = append(clientArgs, fmt.Sprintf("%d,localhost,%d", i, c.Client.BaseServicePort + i))
+	}
 
-	cmdDone := make(chan error, 1)
-	go func ()  {
-		err := process.Start()
-		cmdDone <- err
-	}()
+	process := exec.Command("bash", clientArgs...)
+
+	// cmdDone := make(chan error, 1)
+	process.Start()
 
 	select {
 	case <- time.After(2 * time.Second):
 		syscall.Kill(-process.Process.Pid, syscall.SIGKILL)
-	case <- cmdDone:
+	default:
 	}
 }
 
 type XraftClient struct {
 	ClientBinary	string
-	GroupConfig		string
+	BaseServicePort	int
 }
 
 func NewXraftClient(numNodes int, baseServicePort int, clientBinary string) *XraftClient{
-	groupConfig := ""
-	for i := 1; i <= numNodes; i++ {
-		if i > 1 {
-			groupConfig += " "
-		}
-		groupConfig += fmt.Sprintf("%d,localhost,%d", i, baseServicePort + i -1)
-	}
-
 	return &XraftClient{
-		GroupConfig: groupConfig,
+		BaseServicePort: baseServicePort,
 		ClientBinary: clientBinary,
 	}
 }
