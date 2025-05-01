@@ -31,7 +31,7 @@ func NewTLCClient(addr string) *TLCClient {
 func (c *TLCClient) SendTrace(trace *EventTrace) ([]TLCState, error) {
 	trace.Add(Event{Reset: true})
 	data, err := json.Marshal(trace.Events)
-	// fmt.Println(string(data[:]))
+	fmt.Println(string(data[:]))
 	if err != nil {
 		return []TLCState{}, fmt.Errorf("error marshalling json: %s", err)
 	}

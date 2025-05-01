@@ -291,7 +291,7 @@ func (f *Fuzzer) Run() {
 		f.stats.Coverages = append(f.stats.Coverages, f.guider.Coverage())
 		// f.stats.TimeStamps = append(f.stats.TimeStamps, time.Since(fuzzerStart))
 
-		if iter % 10 == 0 {
+		if iter % 5 == 0 {
 			// Save stats
 			filePath := path.Join(f.config.BaseWorkingDir, "stats.json")
 			dataB, err := json.MarshalIndent(f.stats, "", "\t")

@@ -15,29 +15,31 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 type Network struct {
 	port   int
 	ctx    context.Context
 	server *http.Server
 	logger *Logger
 
-	clientRequestQueue 	[]int
-	leader				string
-	lock       *sync.Mutex
-	nodes      map[string]string
-	mailboxes  map[string][]Message
-	Events     *EventTrace
+	clientRequestQueue []int
+	leader             string
+	lock               *sync.Mutex
+	nodes              map[string]string
+	mailboxes          map[string][]Message
+	Events             *EventTrace
+	requestMap         map[string]int
+	requestCounter     int
 }
 
 func (n *Network) AddClientRequestEvent(requestCount int) {
 	if n.leader == "" {
 		n.clientRequestQueue = append(n.clientRequestQueue, requestCount)
 	} else {
+		leader, _ := strconv.Atoi(n.leader)
 		n.AddEvent(Event{
 			Name: "ClientRequest",
 			Params: map[string]interface{}{
-				"leader": n.leader,
+				"leader":  leader,
 				"request": requestCount,
 			},
 		})
@@ -45,17 +47,17 @@ func (n *Network) AddClientRequestEvent(requestCount int) {
 }
 
 type Message struct {
-	From          string                 `json:"from"`
-	To            string                 `json:"to"`
-	Data          string                 `json:"data"`
-	Type          string                 `json:"type"`
+	From string `json:"from"`
+	To   string `json:"to"`
+	Data string `json:"data"`
+	Type string `json:"type"`
 	// ID            string                 `json:"id"`
 	ParsedMessage map[string]interface{} `json:"-"`
 }
 
 type entry struct {
-	Term int    `json:"term"`
-	Data string `json:"data"`
+	Term int    `json:"Term"`
+	Data string `json:"Data"`
 }
 
 func (m Message) to() string {
@@ -68,10 +70,10 @@ func (m Message) from() string {
 
 func (m Message) Copy() Message {
 	n := Message{
-		From:          m.From,
-		To:            m.To,
-		Data:          m.Data,
-		Type:          m.Type,
+		From: m.From,
+		To:   m.To,
+		Data: m.Data,
+		Type: m.Type,
 		// ID:            m.ID,
 		ParsedMessage: make(map[string]interface{}),
 	}
@@ -85,15 +87,17 @@ func (m Message) Copy() Message {
 
 func NewNetwork(ctx context.Context, port int, logger *Logger) *Network {
 	n := &Network{
-		port:       port,
-		ctx:        ctx,
-		lock:       new(sync.Mutex),
-		nodes:      make(map[string]string),
-		mailboxes:  make(map[string][]Message),
-		Events:     NewEventTrace(),
-		logger:     logger,
+		port:               port,
+		ctx:                ctx,
+		lock:               new(sync.Mutex),
+		nodes:              make(map[string]string),
+		mailboxes:          make(map[string][]Message),
+		Events:             NewEventTrace(),
+		logger:             logger,
 		clientRequestQueue: make([]int, 0),
-		leader:				"",
+		leader:             "",
+		requestMap:         make(map[string]int),
+		requestCounter:     0,
 	}
 
 	gin.SetMode(gin.ReleaseMode)
@@ -115,7 +119,7 @@ func NewNetwork(ctx context.Context, port int, logger *Logger) *Network {
 func (n *Network) handleMessage(c *gin.Context) {
 	m := Message{}
 	if err := c.ShouldBindJSON(&m); err != nil {
-		fmt.Println(fmt.Errorf("Unmarshal error: %e", err))
+		fmt.Println(fmt.Errorf("unmarshal error: %e", err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to unmarshal request"})
 		return
 	}
@@ -128,21 +132,20 @@ func (n *Network) handleMessage(c *gin.Context) {
 	}
 	n.logger.With(LogParams{"message": parsedMessage}).Debug("received message")
 	m.ParsedMessage = parsedMessage
-	sendEvent := Event{
-		Name:   "SendMessage",
-		Node:   from,
-		Params: n.getMessageEventParams(m),
-	}
+	// sendEvent := Event{
+	// 	Name:   "SendMessage",
+	// 	Node:   from,
+	// 	Params: n.getMessageEventParams(m),
+	// }
 
-	
-	mKey := fmt.Sprintf("%d_%d", from, to)
+	mKey := fmt.Sprintf("%s_%s", from, to)
 	n.lock.Lock()
 	_, ok := n.mailboxes[mKey]
 	if !ok {
 		n.mailboxes[mKey] = make([]Message, 0)
 	}
 	n.mailboxes[mKey] = append(n.mailboxes[mKey], m.Copy())
-	n.Events.Add(sendEvent) 
+	// n.Events.Add(sendEvent)
 	n.lock.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
@@ -240,7 +243,7 @@ func (n *Network) handleEvent(c *gin.Context) {
 
 func (n *Network) mapEventToParams(t string, e map[string]interface{}) map[string]interface{} {
 	params := make(map[string]interface{})
-	eParams := e  // e["params"].(map[string]interface{})
+	eParams := e // e["params"].(map[string]interface{})
 	switch t {
 	case "BecomeLeader":
 		node, _ := strconv.Atoi(eParams["node"].(string))
@@ -253,7 +256,7 @@ func (n *Network) mapEventToParams(t string, e map[string]interface{}) map[strin
 			n.AddEvent(Event{
 				Name: "ClientRequest",
 				Params: map[string]interface{}{
-					"leader": n.leader,
+					"leader":  n.leader,
 					"request": req,
 				},
 			})
@@ -271,6 +274,15 @@ func (n *Network) mapEventToParams(t string, e map[string]interface{}) map[strin
 	}
 
 	return params
+}
+
+func (n *Network) getRequestNumber(str string) int {
+	_, ok := n.requestMap[str]
+	if !ok {
+		n.requestMap[str] = n.requestCounter
+		n.requestCounter++
+	}
+	return n.requestMap[str]
 }
 
 func (n *Network) getMessageEventParams(m Message) map[string]interface{} {
@@ -297,9 +309,10 @@ func (n *Network) getMessageEventParams(m Message) map[string]interface{} {
 			if !ok {
 				continue
 			}
+			
 			entries = append(entries, entry{
 				Term: int(eTermI.(float64)),
-				Data: data, // TODO = strconv.Itoa(n.getRequestNumber(data)),
+				Data: strconv.Itoa(n.getRequestNumber(data)), 
 			})
 		}
 		params["entries"] = entries
@@ -366,11 +379,13 @@ func (n *Network) Reset() {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
-	n.Events = NewEventTrace() 
+	n.Events = NewEventTrace()
 	n.mailboxes = make(map[string][]Message)
 	n.nodes = make(map[string]string)
 	n.clientRequestQueue = make([]int, 0)
 	n.leader = ""
+	n.requestMap = make(map[string]int)
+	n.requestCounter = 0
 }
 
 func (n *Network) GetEventTrace() *EventTrace {
@@ -407,7 +422,7 @@ func (n *Network) WaitForNodes(numNodes int) bool {
 func (n *Network) Schedule(from, to string, maxMessages int) {
 	messagesToSend := make([]Message, 0)
 	nodeAddr := ""
-	mKey := fmt.Sprintf("%d_%d", from, to)
+	mKey := fmt.Sprintf("%s_%s", from, to)
 	n.lock.Lock()
 	mailbox, ok := n.mailboxes[mKey]
 	if ok {
@@ -448,7 +463,7 @@ func (n *Network) Schedule(from, to string, maxMessages int) {
 			}
 			n.logger.With(LogParams{
 				"message": string(bs),
-			}).Debug("sending message to: " + "http://"+addr+"/schedule_"+from)
+			}).Debug("sending message to: " + "http://" + addr + "/schedule_" + from)
 			resp, err := client.Post("http://"+addr+"/schedule_"+from, "application/json", bytes.NewBuffer(bs))
 			if err == nil {
 				io.ReadAll(resp.Body)
@@ -462,7 +477,7 @@ func (n *Network) Schedule(from, to string, maxMessages int) {
 			Params: n.getMessageEventParams(m),
 		}
 		n.lock.Lock()
-		n.Events.Add(receiveEvent) 
+		n.Events.Add(receiveEvent)
 		n.lock.Unlock()
 	}
 }
