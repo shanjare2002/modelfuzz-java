@@ -2,7 +2,7 @@
 
 ModelFuzz is a fuzzer developed for fuzzing distributed systems. This repository supports testing Ratis and Xraft. 
 
-In the parent folder of this repository you should clone:
+In the parent folder of this repository, please clone:
 
 `https://github.com/egeberkaygulcan/xraft-controlled`
 
