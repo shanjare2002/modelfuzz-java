@@ -1,4 +1,4 @@
-module github.com/egeberkaygulcan/modelfuzz-xraft
+module github.com/egeberkaygulcan/modelfuzz-java
 
 go 1.20
 

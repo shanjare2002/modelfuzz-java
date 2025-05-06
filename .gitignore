@@ -26,3 +26,6 @@ go.work.sum
 
 output/
 data/
+
+modelfuzz-xraft
+modelfuzz-java
