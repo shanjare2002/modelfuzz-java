@@ -25,6 +25,7 @@ func main() {
 		LogLevel:          logLevel,
 		NetworkPort:       7074,                             // + i,
 		BaseWorkingDir:    "./output/" + ModelFuzz.String(), // FuzzerType(i).String(),
+		RatisDataDir:      "./data",
 		MutationsPerTrace: 3,
 		SeedPopulation:    20,
 		NumRequests:       3,

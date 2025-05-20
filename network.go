@@ -29,6 +29,7 @@ type Network struct {
 	Events             *EventTrace
 	requestMap         map[string]int
 	requestCounter     int
+	nodeType           NodeType
 }
 
 func (n *Network) AddClientRequestEvent(requestCount int) {
@@ -47,10 +48,11 @@ func (n *Network) AddClientRequestEvent(requestCount int) {
 }
 
 type Message struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	Data string `json:"data"`
-	Type string `json:"type"`
+	From   string                 `json:"from"`
+	To     string                 `json:"to"`
+	Data   string                 `json:"data"`
+	Type   string                 `json:"type"`
+	Params map[string]interface{} `json:"params"`
 	// ID            string                 `json:"id"`
 	ParsedMessage map[string]interface{} `json:"-"`
 }
@@ -85,7 +87,7 @@ func (m Message) Copy() Message {
 	return n
 }
 
-func NewNetwork(ctx context.Context, port int, logger *Logger) *Network {
+func NewNetwork(ctx context.Context, port int, nodeType NodeType, logger *Logger) *Network {
 	n := &Network{
 		port:               port,
 		ctx:                ctx,
@@ -98,6 +100,7 @@ func NewNetwork(ctx context.Context, port int, logger *Logger) *Network {
 		leader:             "",
 		requestMap:         make(map[string]int),
 		requestCounter:     0,
+		nodeType:           nodeType,
 	}
 
 	gin.SetMode(gin.ReleaseMode)
@@ -117,6 +120,7 @@ func NewNetwork(ctx context.Context, port int, logger *Logger) *Network {
 }
 
 func (n *Network) handleMessage(c *gin.Context) {
+	// fmt.Println("New message.")
 	m := Message{}
 	if err := c.ShouldBindJSON(&m); err != nil {
 		fmt.Println(fmt.Errorf("unmarshal error: %e", err))
@@ -125,13 +129,21 @@ func (n *Network) handleMessage(c *gin.Context) {
 	}
 	to := m.to()
 	from := m.from()
+
 	parsedMessage := make(map[string]interface{})
-	if err := json.Unmarshal([]byte(m.Data), &parsedMessage); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to unmarshal request"})
-		return
+	if n.nodeType == Xraft {
+		if err := json.Unmarshal([]byte(m.Data), &parsedMessage); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to unmarshal request"})
+			return
+		}
+		m.ParsedMessage = parsedMessage
+	} else {
+		m.ParsedMessage = m.Params
 	}
+
 	n.logger.With(LogParams{"message": parsedMessage}).Debug("received message")
-	m.ParsedMessage = parsedMessage
+
+	// fmt.Println(m)
 	// sendEvent := Event{
 	// 	Name:   "SendMessage",
 	// 	Node:   from,
@@ -145,6 +157,7 @@ func (n *Network) handleMessage(c *gin.Context) {
 		n.mailboxes[mKey] = make([]Message, 0)
 	}
 	n.mailboxes[mKey] = append(n.mailboxes[mKey], m.Copy())
+	// fmt.Println(n.mailboxes)
 	// n.Events.Add(sendEvent)
 	n.lock.Unlock()
 
@@ -309,10 +322,10 @@ func (n *Network) getMessageEventParams(m Message) map[string]interface{} {
 			if !ok {
 				continue
 			}
-			
+
 			entries = append(entries, entry{
 				Term: int(eTermI.(float64)),
-				Data: strconv.Itoa(n.getRequestNumber(data)), 
+				Data: strconv.Itoa(n.getRequestNumber(data)),
 			})
 		}
 		params["entries"] = entries
@@ -429,7 +442,8 @@ func (n *Network) Schedule(from, to string, maxMessages int) {
 		offset := 0
 		for i, m := range mailbox {
 			if i < maxMessages {
-				messagesToSend = append(messagesToSend, m.Copy())
+				msg := m.Copy()
+				messagesToSend = append(messagesToSend, msg)
 				offset = i
 			}
 		}
@@ -441,6 +455,7 @@ func (n *Network) Schedule(from, to string, maxMessages int) {
 	}
 	nodeAddr = n.nodes[to]
 	n.lock.Unlock()
+	// fmt.Println("--------")
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -464,7 +479,13 @@ func (n *Network) Schedule(from, to string, maxMessages int) {
 			n.logger.With(LogParams{
 				"message": string(bs),
 			}).Debug("sending message to: " + "http://" + addr + "/schedule_" + from)
-			resp, err := client.Post("http://"+addr+"/schedule_"+from, "application/json", bytes.NewBuffer(bs))
+			var serverAddress string
+			if n.nodeType == Xraft {
+				serverAddress = "http://" + addr + "/schedule_" + from
+			} else {
+				serverAddress = "http://" + addr
+			}
+			resp, err := client.Post(serverAddress, "application/json", bytes.NewBuffer(bs))
 			if err == nil {
 				io.ReadAll(resp.Body)
 				resp.Body.Close()

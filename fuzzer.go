@@ -15,9 +15,9 @@ import (
 type FuzzerType int
 
 const (
-	RandomFuzzer		FuzzerType = 0	
-	ModelFuzz			FuzzerType = 1	   
-	TraceFuzzer			FuzzerType = 2		  
+	RandomFuzzer FuzzerType = 0
+	ModelFuzz    FuzzerType = 1
+	TraceFuzzer  FuzzerType = 2
 )
 
 func (ft FuzzerType) String() string {
@@ -35,48 +35,48 @@ func (ft FuzzerType) String() string {
 
 type FuzzerConfig struct {
 	// TimeBudget			int
-	Horizon				int
-	Iterations			int
-	NumNodes			int
+	Horizon    int
+	Iterations int
+	NumNodes   int
 	// RecordPath			string
-	LogLevel			string
-	NetworkPort 		int
-	BaseWorkingDir		string
+	LogLevel       string
+	NetworkPort    int
+	BaseWorkingDir string
+	RatisDataDir   string
 
-	MutationsPerTrace	int
-	SeedPopulation		int
-	NumRequests			int
-	NumCrashes			int
-	MaxMessages			int
-	ReseedFrequency		int
-	RandomSeed			int
+	MutationsPerTrace int
+	SeedPopulation    int
+	NumRequests       int
+	NumCrashes        int
+	MaxMessages       int
+	ReseedFrequency   int
+	RandomSeed        int
 
-	ClusterConfig		*ClusterConfig
-	TLCPort				int
+	ClusterConfig *ClusterConfig
+	TLCPort       int
 }
 
 type Fuzzer struct {
-	config			FuzzerConfig
-	logger			*Logger
-	network			*Network
-	fuzzerType 		FuzzerType
-	scheduleQueue	[]*Trace
-	stats			*Stats
-	random			*rand.Rand
-	guider			Guider
-	mutator			Mutator
+	config        FuzzerConfig
+	logger        *Logger
+	network       *Network
+	fuzzerType    FuzzerType
+	scheduleQueue []*Trace
+	stats         *Stats
+	random        *rand.Rand
+	guider        Guider
+	mutator       Mutator
 }
-
 
 func NewFuzzer(config FuzzerConfig, fuzzerType FuzzerType) (*Fuzzer, error) {
 	f := &Fuzzer{
-		config:  config,
-		logger:	 NewLogger(),
-		fuzzerType: fuzzerType,
+		config:        config,
+		logger:        NewLogger(),
+		fuzzerType:    fuzzerType,
 		scheduleQueue: make([]*Trace, 0),
 		stats: &Stats{
-			Coverages: make([]int, 0),
-			RandomTraces: 0,
+			Coverages:     make([]int, 0),
+			RandomTraces:  0,
 			MutatedTraces: 0,
 			// TimeStamps: make([]time.Duration, 0),
 		},
@@ -90,7 +90,7 @@ func NewFuzzer(config FuzzerConfig, fuzzerType FuzzerType) (*Fuzzer, error) {
 	os.MkdirAll(config.BaseWorkingDir, 0777)
 
 	ctx, _ := context.WithCancel(context.Background())
-	f.network = NewNetwork(ctx, config.NetworkPort, f.logger.With(LogParams{"type": "network"}))
+	f.network = NewNetwork(ctx, config.NetworkPort, config.ClusterConfig.ServerType, f.logger.With(LogParams{"type": "network"}))
 	addr := fmt.Sprintf("localhost:%d", config.TLCPort)
 	f.guider = NewGuider(fuzzerType, addr, config.BaseWorkingDir)
 	f.mutator = CombineMutators(NewSwapCrashNodeMutator(1, f.random), NewSwapNodeMutator(20, f.random), NewSwapMaxMessagesMutator(20, f.random))
@@ -107,11 +107,11 @@ func (f *Fuzzer) Run() {
 	f.logger.Debug("Running fuzzer...")
 	// iter := 0
 	for iter := 0; iter < f.config.Iterations; iter++ { // fuzzerStart := time.Now(); time.Since(fuzzerStart) < time.Duration(f.config.TimeBudget) * time.Minute;  { // TODO - Back to hour
-		if iter % 10 == 0 {
+		if iter%10 == 0 {
 			f.logger.Info(strconv.Itoa(iter))
 		}
 		f.logger.Debug("Seeding.")
-		if iter % f.config.ReseedFrequency == 0  && f.fuzzerType != RandomFuzzer {
+		if iter%f.config.ReseedFrequency == 0 && f.fuzzerType != RandomFuzzer {
 			f.scheduleQueue = make([]*Trace, 0)
 			for i := 0; i < f.config.SeedPopulation; i++ {
 				f.scheduleQueue = append(f.scheduleQueue, f.GenerateRandom())
@@ -130,6 +130,7 @@ func (f *Fuzzer) Run() {
 
 		// Start cluster
 		f.config.ClusterConfig.WorkDir = path.Join(workDir, "cluster")
+		f.config.ClusterConfig.RatisDataDir = f.config.RatisDataDir
 		f.config.ClusterConfig.ClusterID = iter
 		f.config.ClusterConfig.SchedulerPort = f.config.NetworkPort
 		cluster := NewCluster(f.config.ClusterConfig, f.logger.With(LogParams{"type": "cluster"}))
@@ -179,7 +180,7 @@ func (f *Fuzzer) Run() {
 		f.logger.Debug("Fuzzer setup complete.")
 		time.Sleep(3 * time.Second)
 
-		for step := 0; step < f.config.Horizon; step++ {// start := time.Now(); time.Since(start) < time.Duration(f.config.IterTimeBudget) * time.Second; {
+		for step := 0; step < f.config.Horizon; step++ { // start := time.Now(); time.Since(start) < time.Duration(f.config.IterTimeBudget) * time.Second; {
 			// var choice Choice
 			// // Random if schedule is empty
 			// if step >= len(schedule.Choices) {
@@ -228,7 +229,7 @@ func (f *Fuzzer) Run() {
 			}
 
 			f.network.Schedule(scheduleFromNode[step], scheduleToNode[step], scheduleMaxMessages[step])
-				
+
 			op, ok := clientRequests[step]
 			if ok {
 				f.logger.Debug("Sending request " + op)
@@ -237,9 +238,9 @@ func (f *Fuzzer) Run() {
 				requestCount++
 			}
 
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(30 * time.Millisecond)
 		}
-		
+
 		// Stop and reset cluster
 		logs := cluster.GetLogs()
 		cluster.Destroy()
@@ -291,7 +292,7 @@ func (f *Fuzzer) Run() {
 		f.stats.Coverages = append(f.stats.Coverages, f.guider.Coverage())
 		// f.stats.TimeStamps = append(f.stats.TimeStamps, time.Since(fuzzerStart))
 
-		if iter % 5 == 0 {
+		if iter%5 == 0 {
 			// Save stats
 			filePath := path.Join(f.config.BaseWorkingDir, "stats.json")
 			dataB, err := json.MarshalIndent(f.stats, "", "\t")
@@ -313,7 +314,7 @@ func (f *Fuzzer) Run() {
 			writer.Flush()
 		}
 	}
-	
+
 	// Save stats
 	filePath := path.Join(f.config.BaseWorkingDir, "stats.json")
 	dataB, err := json.MarshalIndent(f.stats, "", "\t")
@@ -335,7 +336,7 @@ func (f *Fuzzer) Run() {
 	writer.Flush()
 }
 
-func (f * Fuzzer) GenerateRandom() *Trace{
+func (f *Fuzzer) GenerateRandom() *Trace {
 	trace := NewTrace()
 	for i := 0; i < f.config.Horizon; i++ {
 		fromIdx := f.random.Intn(f.config.NumNodes) + 1
@@ -343,8 +344,8 @@ func (f * Fuzzer) GenerateRandom() *Trace{
 		trace.Add(Choice{
 			Type:        "Node",
 			Step:        i,
-			From:		 strconv.Itoa(fromIdx),
-			To:			 strconv.Itoa(toIdx),
+			From:        strconv.Itoa(fromIdx),
+			To:          strconv.Itoa(toIdx),
 			MaxMessages: f.random.Intn(f.config.MaxMessages),
 		})
 	}
@@ -367,7 +368,7 @@ func (f * Fuzzer) GenerateRandom() *Trace{
 		// 	Step: s,
 		// })
 	}
-	
+
 	for _, req := range sample(choices, f.config.NumRequests, f.random) {
 		trace.Add(Choice{
 			Type: "ClientRequest",
@@ -379,4 +380,3 @@ func (f * Fuzzer) GenerateRandom() *Trace{
 }
 
 func (f *Fuzzer) Cleanup() {}
-

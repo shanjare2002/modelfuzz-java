@@ -57,6 +57,7 @@ type ClusterConfig struct {
 	BaseInterceptorPort int
 	SchedulerPort       int
 	WorkDir             string
+	RatisDataDir        string
 	LogLevel            string
 }
 
@@ -74,6 +75,7 @@ func (c *ClusterConfig) Copy() *ClusterConfig {
 		BaseInterceptorPort: c.BaseInterceptorPort,
 		SchedulerPort:       c.SchedulerPort,
 		WorkDir:             c.WorkDir,
+		RatisDataDir:        c.RatisDataDir,
 		LogLevel:            c.LogLevel,
 	}
 }
@@ -153,7 +155,7 @@ func NewCluster(config *ClusterConfig, logger *Logger) *Cluster {
 	if config.ServerType == Xraft {
 		client = NewXraftClient(config.NumNodes, config.BaseServicePort, config.XraftClientPath, logger)
 	} else {
-		peerAddresses:= ""
+		peerAddresses := ""
 		for i := 0; i < config.NumNodes; i++ {
 			peerAddresses += "127.0.0.1:" + strconv.Itoa(config.BaseGroupPort+i) + ","
 		}
@@ -201,6 +203,7 @@ func (c *Cluster) Destroy() error {
 	}
 
 	os.RemoveAll(c.Config.WorkDir)
+	os.RemoveAll(c.Config.RatisDataDir)
 	return err
 }
 
