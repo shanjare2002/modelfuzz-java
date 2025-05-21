@@ -22,7 +22,6 @@ func main() {
 		Horizon:           200,
 		Iterations:        1,
 		NumNodes:          numNodes,
-		LogLevel:          logLevel,
 		NetworkPort:       7074,                             // + i,
 		BaseWorkingDir:    "./output/" + ModelFuzz.String(), // FuzzerType(i).String(),
 		RatisDataDir:      "./data",
@@ -37,7 +36,7 @@ func main() {
 		ClusterConfig: &ClusterConfig{
 			FuzzerType:          ModelFuzz, // FuzzerType(i),
 			NumNodes:            numNodes,
-			ServerType:          Ratis,
+			ServerType:          Xraft,
 			XraftServerPath:     "../xraft-controlled/xraft-kvstore/target/xraft-kvstore-0.1.0-SNAPSHOT-bin/xraft-kvstore-0.1.0-SNAPSHOT/bin/xraft-kvstore",
 			XraftClientPath:     "../xraft-controlled/xraft-kvstore/target/xraft-kvstore-0.1.0-SNAPSHOT-bin/xraft-kvstore-0.1.0-SNAPSHOT/bin/xraft-kvstore-cli",
 			RatisServerPath:     "../ratis-fuzzing/ratis-examples/target/ratis-examples-2.5.1.jar",
