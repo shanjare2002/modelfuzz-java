@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	logLevel := "INFO"
+	logLevel := "debug"
 	numNodes := 3
 
 	argsWithoutProg := os.Args[1:]
@@ -22,6 +22,7 @@ func main() {
 		Horizon:           200,
 		Iterations:        1,
 		NumNodes:          numNodes,
+		LogLevel:          logLevel,
 		NetworkPort:       7074,                             // + i,
 		BaseWorkingDir:    "./output/" + ModelFuzz.String(), // FuzzerType(i).String(),
 		RatisDataDir:      "./data",

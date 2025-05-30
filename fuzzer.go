@@ -78,7 +78,6 @@ func NewFuzzer(config FuzzerConfig, fuzzerType FuzzerType) (*Fuzzer, error) {
 			Coverages:     make([]int, 0),
 			RandomTraces:  0,
 			MutatedTraces: 0,
-			// TimeStamps: make([]time.Duration, 0),
 		},
 		random: rand.New(rand.NewSource(int64(config.RandomSeed))),
 	}
@@ -106,7 +105,7 @@ func (f *Fuzzer) Reset() {
 func (f *Fuzzer) Run() {
 	f.logger.Debug("Running fuzzer...")
 	// iter := 0
-	for iter := 0; iter < f.config.Iterations; iter++ { // fuzzerStart := time.Now(); time.Since(fuzzerStart) < time.Duration(f.config.TimeBudget) * time.Minute;  { // TODO - Back to hour
+	for iter := 0; iter < f.config.Iterations; iter++ {
 		if iter%10 == 0 {
 			f.logger.Info(strconv.Itoa(iter))
 		}
@@ -180,24 +179,7 @@ func (f *Fuzzer) Run() {
 		f.logger.Debug("Fuzzer setup complete.")
 		time.Sleep(3 * time.Second)
 
-		for step := 0; step < f.config.Horizon; step++ { // start := time.Now(); time.Since(start) < time.Duration(f.config.IterTimeBudget) * time.Second; {
-			// var choice Choice
-			// // Random if schedule is empty
-			// if step >= len(schedule.Choices) {
-			// 	// Choose between nodes (from, to), client request, fault
-			// 	fromIdx := f.random.Intn(f.config.NumNodes) + 1
-			// 	toIdx := f.random.Intn(f.config.NumNodes) + 1
-			// 	choice = Choice{
-			// 		Type: "Node",
-			// 		Step: step,
-			// 		From: strconv.Itoa(fromIdx),
-			// 		To:	 strconv.Itoa(toIdx),
-			// 		MaxMessages: f.random.Intn(f.config.MaxMessages),
-			// 	}
-			// 	schedule.Add(choice)
-			// } else {
-			// 	choice = schedule.Choices[step]
-			// }
+		for step := 0; step < f.config.Horizon; step++ {
 
 			f.logger.Debug(strconv.Itoa(step))
 			crashNode, ok := crashPoints[step]
@@ -216,7 +198,6 @@ func (f *Fuzzer) Run() {
 					})
 				}
 				crashCount++
-				// node.config.InterceptorPort += ((iter % 2) * f.config.NumCrashes + crashCount + f.config.NumNodes)
 
 				node.Start()
 				f.network.AddEvent(Event{
@@ -265,12 +246,14 @@ func (f *Fuzzer) Run() {
 		// Get coverage
 		var newStates bool
 		var weight int
+		var numNewTransitions int
 		// for _, event := range eventTrace.Events {
 		// 	f.logger.Info(event.Name)
 		// }
 		if f.guider != nil {
-			newStates, weight = f.guider.Check("states", schedule, eventTrace, true)
+			newStates, weight, numNewTransitions = f.guider.Check("states", schedule, eventTrace, true)
 		}
+		fmt.Printf("New states: %t, weight: %d, numNewTransitions: %d\n", newStates, weight, numNewTransitions)
 		if newStates && f.fuzzerType != RandomFuzzer {
 			mutatedTraces := make([]*Trace, 0)
 			for i := 0; i < weight*f.config.MutationsPerTrace; i++ {
@@ -282,6 +265,17 @@ func (f *Fuzzer) Run() {
 			}
 			f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
 		}
+		// if numNewTransitions > 0 && f.fuzzerType != RandomFuzzer {
+		// 	mutatedTraces := make([]*Trace, 0)
+		// 	for i := 0; i < numNewTransitions*f.config.MutationsPerTrace; i++ {
+		// 		// Mutate and update schedule queue
+		// 		newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
+		// 		if ok {
+		// 			mutatedTraces = append(mutatedTraces, newTrace.Copy())
+		// 		}
+		// 	}
+		// 	f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
+		// }
 
 		// Update stats
 		if mutated {
