@@ -265,6 +265,7 @@ func (f *Fuzzer) Run() {
 			}
 			f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
 		}
+		
 		// if numNewTransitions > 0 && f.fuzzerType != RandomFuzzer {
 		// 	mutatedTraces := make([]*Trace, 0)
 		// 	for i := 0; i < numNewTransitions*f.config.MutationsPerTrace; i++ {

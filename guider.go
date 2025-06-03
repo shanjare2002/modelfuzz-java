@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"strings"
-	"fmt"
 )
 
 type Guider interface {
