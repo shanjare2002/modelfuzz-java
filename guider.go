@@ -13,12 +13,12 @@ import (
 type Guider interface {
 	Check(iter string, trace *Trace, eventTrace *EventTrace, record bool) (bool, int, int)
 	Coverage() int
-	// BranchCoverage() int
+	TransitionCoverage() int
 	Reset()
 }
 
-func NewGuider(fuzzerType FuzzerType, addr, recordPath string) Guider{
-	if fuzzerType == ModelFuzz || fuzzerType == RandomFuzzer{
+func NewGuider(fuzzerType FuzzerType, addr, recordPath string) Guider {
+	if fuzzerType == ModelFuzz || fuzzerType == RandomFuzzer {
 		return NewTLCStateGuider(addr, recordPath)
 	} else if fuzzerType == TraceFuzzer {
 		return NewTraceCoverageGuider(addr, recordPath)
@@ -28,9 +28,9 @@ func NewGuider(fuzzerType FuzzerType, addr, recordPath string) Guider{
 }
 
 type TLCStateGuider struct {
-	TLCAddr         string
-	statesMap       map[int64]bool
-	tlcClient       *TLCClient
+	TLCAddr          string
+	statesMap        map[int64]bool
+	tlcClient        *TLCClient
 	stateTransitions map[int64][]int64
 	// objectPath      string
 	// gCovProgramPath string
@@ -42,11 +42,11 @@ var _ Guider = &TLCStateGuider{}
 
 func NewTLCStateGuider(tlcAddr, recordPath string) *TLCStateGuider {
 	return &TLCStateGuider{
-		TLCAddr:         tlcAddr,
-		statesMap:       make(map[int64]bool),
-		tlcClient:       NewTLCClient(tlcAddr),
-		stateTransitions: make(map[int64][]int64), 
-		recordPath:      recordPath,
+		TLCAddr:          tlcAddr,
+		statesMap:        make(map[int64]bool),
+		tlcClient:        NewTLCClient(tlcAddr),
+		stateTransitions: make(map[int64][]int64),
+		recordPath:       recordPath,
 		// objectPath:      objectPath,
 		// gCovProgramPath: gCovPath,
 	}
@@ -61,6 +61,10 @@ func (t *TLCStateGuider) Coverage() int {
 	return len(t.statesMap)
 }
 
+func (t *TLCStateGuider) TransitionCoverage() int {
+	return len(t.stateTransitions)
+}
+
 // func (t *TLCStateGuider) BranchCoverage() int {
 // 	branches, err := getBranches(t.objectPath, t.gCovProgramPath)
 // 	if err != nil {
@@ -69,7 +73,7 @@ func (t *TLCStateGuider) Coverage() int {
 // 	return len(branches)
 // }
 
-func (t *TLCStateGuider) Check(iter string, trace *Trace, eventTrace *EventTrace, record bool) (bool, int,int) {
+func (t *TLCStateGuider) Check(iter string, trace *Trace, eventTrace *EventTrace, record bool) (bool, int, int) {
 
 	numNewStates := 0
 	numNewTransitions := 0
@@ -85,7 +89,7 @@ func (t *TLCStateGuider) Check(iter string, trace *Trace, eventTrace *EventTrace
 				t.statesMap[s.Key] = true
 			}
 		}
-		
+
 		start := true
 		previous_state := int64(-1)
 		for _, s := range tlcStates {

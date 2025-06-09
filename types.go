@@ -1,10 +1,10 @@
 package main
 
 type Choice struct {
-	Type	string
-	Node	string
-	From	string
-	To 		string
+	Type        string
+	Node        string
+	From        string
+	To          string
 	Op          string
 	Step        int
 	MaxMessages int
@@ -102,8 +102,8 @@ func (et *EventTrace) Add(e Event) {
 // }
 
 type Stats struct {
-	Coverages           []int
-	// TimeStamps			[]time.Duration
-	RandomTraces        int
-	MutatedTraces       int
+	Coverages     []int
+	Transitions   []int
+	RandomTraces  int
+	MutatedTraces int
 }

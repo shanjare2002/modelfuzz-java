@@ -76,6 +76,7 @@ func NewFuzzer(config FuzzerConfig, fuzzerType FuzzerType) (*Fuzzer, error) {
 		scheduleQueue: make([]*Trace, 0),
 		stats: &Stats{
 			Coverages:     make([]int, 0),
+			Transitions:   make([]int, 0),
 			RandomTraces:  0,
 			MutatedTraces: 0,
 		},
@@ -265,7 +266,7 @@ func (f *Fuzzer) Run() {
 			}
 			f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
 		}
-		
+
 		// if numNewTransitions > 0 && f.fuzzerType != RandomFuzzer {
 		// 	mutatedTraces := make([]*Trace, 0)
 		// 	for i := 0; i < numNewTransitions*f.config.MutationsPerTrace; i++ {
@@ -285,8 +286,9 @@ func (f *Fuzzer) Run() {
 			f.stats.RandomTraces++
 		}
 		f.stats.Coverages = append(f.stats.Coverages, f.guider.Coverage())
-		// f.stats.TimeStamps = append(f.stats.TimeStamps, time.Since(fuzzerStart))
+		f.stats.Transitions = append(f.stats.Transitions, f.guider.TransitionCoverage())
 
+		// Save stats
 		if iter%5 == 0 {
 			// Save stats
 			filePath := path.Join(f.config.BaseWorkingDir, "stats.json")
@@ -311,24 +313,26 @@ func (f *Fuzzer) Run() {
 	}
 
 	// Save stats
-	filePath := path.Join(f.config.BaseWorkingDir, "stats.json")
-	dataB, err := json.MarshalIndent(f.stats, "", "\t")
-	if err != nil {
-		return
-	}
+	{
+		filePath := path.Join(f.config.BaseWorkingDir, "stats.json")
+		dataB, err := json.MarshalIndent(f.stats, "", "\t")
+		if err != nil {
+			return
+		}
 
-	if _, err := os.Stat(filePath); err == nil {
-		os.Remove(filePath)
-	}
+		if _, err := os.Stat(filePath); err == nil {
+			os.Remove(filePath)
+		}
 
-	file, err := os.Create(filePath)
-	if err != nil {
-		return
+		file, err := os.Create(filePath)
+		if err != nil {
+			return
+		}
+		defer file.Close()
+		writer := bufio.NewWriter(file)
+		writer.Write(dataB)
+		writer.Flush()
 	}
-	defer file.Close()
-	writer := bufio.NewWriter(file)
-	writer.Write(dataB)
-	writer.Flush()
 }
 
 func (f *Fuzzer) GenerateRandom() *Trace {
