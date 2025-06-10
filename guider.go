@@ -5,23 +5,27 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
+	"fmt"
 	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
 type Guider interface {
-	Check(iter string, trace *Trace, eventTrace *EventTrace, record bool) (bool, int, int)
+	Check(iter string, trace *Trace, eventTrace *EventTrace, record bool) (bool, int, int, int)
 	Coverage() int
 	TransitionCoverage() int
 	Reset()
 }
 
-func NewGuider(fuzzerType FuzzerType, addr, recordPath string) Guider {
+func NewGuider(fuzzerType FuzzerType, addr, recordPath string, jacocoFile string, jacocoOutput string) Guider {
 	if fuzzerType == ModelFuzz || fuzzerType == RandomFuzzer {
-		return NewTLCStateGuider(addr, recordPath)
+		return NewTLCStateGuider(addr, recordPath, jacocoFile, jacocoOutput)
 	} else if fuzzerType == TraceFuzzer {
-		return NewTraceCoverageGuider(addr, recordPath)
+		return NewTraceCoverageGuider(addr, recordPath, jacocoFile, jacocoOutput)
 	} else {
 		return nil
 	}
@@ -35,20 +39,22 @@ type TLCStateGuider struct {
 	// objectPath      string
 	// gCovProgramPath string
 
-	recordPath string
+	recordPath   string
+	jacocoFile   string
+	jacocoOutput string
 }
 
 var _ Guider = &TLCStateGuider{}
 
-func NewTLCStateGuider(tlcAddr, recordPath string) *TLCStateGuider {
+func NewTLCStateGuider(tlcAddr, recordPath string, jacocoFile string, jacocoOutput string) *TLCStateGuider {
 	return &TLCStateGuider{
 		TLCAddr:          tlcAddr,
 		statesMap:        make(map[int64]bool),
 		tlcClient:        NewTLCClient(tlcAddr),
 		stateTransitions: make(map[int64][]int64),
 		recordPath:       recordPath,
-		// objectPath:      objectPath,
-		// gCovProgramPath: gCovPath,
+		jacocoFile:       jacocoFile,
+		jacocoOutput:     jacocoOutput,
 	}
 }
 
@@ -65,23 +71,17 @@ func (t *TLCStateGuider) TransitionCoverage() int {
 	return len(t.stateTransitions)
 }
 
-// func (t *TLCStateGuider) BranchCoverage() int {
-// 	branches, err := getBranches(t.objectPath, t.gCovProgramPath)
-// 	if err != nil {
-// 		return 0
-// 	}
-// 	return len(branches)
-// }
-
-func (t *TLCStateGuider) Check(iter string, trace *Trace, eventTrace *EventTrace, record bool) (bool, int, int) {
+func (t *TLCStateGuider) Check(iter string, trace *Trace, eventTrace *EventTrace, record bool) (bool, int, int, int) {
 
 	numNewStates := 0
 	numNewTransitions := 0
+	numNewLines := 0
 	if tlcStates, err := t.tlcClient.SendTrace(eventTrace); err == nil {
 		if record {
 			t.recordTrace(iter, trace, eventTrace, tlcStates)
 		}
 
+		// Update states and transitions
 		for _, s := range tlcStates {
 			_, ok := t.statesMap[s.Key]
 			if !ok {
@@ -113,9 +113,21 @@ func (t *TLCStateGuider) Check(iter string, trace *Trace, eventTrace *EventTrace
 				previous_state = currKey
 			}
 		}
+
+		if t.jacocoOutput != "" {
+			// Generate XML report if jacocoFile and jacocoOutput are provided
+			if err := t.generateXMLReport(); err != nil {
+				panic(fmt.Sprintf("failed to generate XML report: %v", err))
+			}
+			numNewLines, err = parseCoverageAndUpdate(t.jacocoOutput)
+			if err != nil {
+				panic(fmt.Sprintf("failed to parse coverage: %v", err))
+			}
+		}
+
 	}
 
-	return numNewStates != 0, numNewStates, numNewTransitions
+	return numNewStates != 0, numNewStates, numNewTransitions, numNewLines
 }
 
 func (t *TLCStateGuider) recordTrace(as string, trace *Trace, eventTrace *EventTrace, states []TLCState) {
@@ -163,14 +175,14 @@ type TraceCoverageGuider struct {
 
 var _ Guider = &TraceCoverageGuider{}
 
-func NewTraceCoverageGuider(tlcAddr, recordPath string) *TraceCoverageGuider {
+func NewTraceCoverageGuider(tlcAddr, recordPath string, jacocoFile string, jacocoOutput string) *TraceCoverageGuider {
 	return &TraceCoverageGuider{
 		traces:         make(map[string]bool),
-		TLCStateGuider: NewTLCStateGuider(tlcAddr, recordPath),
+		TLCStateGuider: NewTLCStateGuider(tlcAddr, recordPath, jacocoFile, jacocoOutput),
 	}
 }
 
-func (t *TraceCoverageGuider) Check(iter string, trace *Trace, events *EventTrace, record bool) (bool, int, int) {
+func (t *TraceCoverageGuider) Check(iter string, trace *Trace, events *EventTrace, record bool) (bool, int, int, int) {
 	t.TLCStateGuider.Check(iter, trace, events, record)
 
 	eTrace := newEventTrace(events)
@@ -181,7 +193,7 @@ func (t *TraceCoverageGuider) Check(iter string, trace *Trace, events *EventTrac
 		t.traces[key] = true
 		new = 1
 	}
-	return new != 0, new, 0
+	return new != 0, new, 0, 0
 }
 
 func (t *TraceCoverageGuider) Coverage() int {
@@ -243,4 +255,85 @@ func newEventTrace(events *EventTrace) *eventTrace {
 		eTrace.Nodes[node.ID] = node
 	}
 	return eTrace
+}
+
+func (t *TLCStateGuider) generateXMLReport() error {
+	cmd := exec.Command("java", "-jar", "jacococli.jar", "report", t.jacocoFile,
+		"--classfiles", "../xraft-controlled/xraft-core/target/classes",
+		"--classfiles", "../xraft-controlled/xraft-kvstore/target/classes",
+		"--sourcefiles", "../xraft-controlled/xraft-core/src/main/java",
+		"--sourcefiles", "../xraft-controlled/xraft-kvstore/src/main/java",
+		"--xml", t.jacocoOutput)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+type Line struct {
+	Number          int `xml:"nr,attr"`
+	MissedInstr     int `xml:"mi,attr"`
+	CoveredInstr    int `xml:"ci,attr"`
+	MissedBranches  int `xml:"mb,attr"`
+	CoveredBranches int `xml:"cb,attr"`
+}
+
+// ------- Function for code coverage -------
+var coverageData = map[string]map[int]struct{}{}
+
+type SourceFile struct {
+	Name  string `xml:"name,attr"`
+	Lines []Line `xml:"line"`
+}
+
+type Package struct {
+	Name        string       `xml:"name,attr"`
+	SourceFiles []SourceFile `xml:"sourcefile"`
+}
+
+type Report struct {
+	Packages []Package `xml:"package"`
+}
+
+func parseCoverageAndUpdate(path string) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	var report Report
+	if err := xml.NewDecoder(f).Decode(&report); err != nil {
+		return 0, err
+	}
+
+	newLines := 0
+
+	for _, pkg := range report.Packages {
+		for _, src := range pkg.SourceFiles {
+			filePath := filepath.Join(pkg.Name, src.Name)
+
+			// Ensure map for this file exists
+			if _, ok := coverageData[filePath]; !ok {
+				coverageData[filePath] = map[int]struct{}{}
+			}
+
+			for _, line := range src.Lines {
+				if line.CoveredInstr > 0 {
+					if _, already := coverageData[filePath][line.Number]; !already {
+						newLines += 1
+						coverageData[filePath][line.Number] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	return newLines, nil
+}
+
+func CoverageDataLength() int {
+	count := 0
+	for _, lines := range coverageData {
+		count += len(lines)
+	}
+	return count
 }

@@ -104,6 +104,7 @@ func (et *EventTrace) Add(e Event) {
 type Stats struct {
 	Coverages     []int
 	Transitions   []int
+	CodeCoverage  []int
 	RandomTraces  int
 	MutatedTraces int
 }

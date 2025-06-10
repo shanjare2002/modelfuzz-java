@@ -13,11 +13,18 @@ import (
 )
 
 type FuzzerType int
+type mutationType int
 
 const (
 	RandomFuzzer FuzzerType = 0
 	ModelFuzz    FuzzerType = 1
 	TraceFuzzer  FuzzerType = 2
+)
+
+const (
+	stateCoverage        mutationType = 0
+	TransitionCoverage   mutationType = 1
+	CodeAndStateCoverage mutationType = 2
 )
 
 func (ft FuzzerType) String() string {
@@ -43,6 +50,8 @@ type FuzzerConfig struct {
 	NetworkPort    int
 	BaseWorkingDir string
 	RatisDataDir   string
+	jacocoFile     string
+	jacocoOutput   string
 
 	MutationsPerTrace int
 	SeedPopulation    int
@@ -61,6 +70,7 @@ type Fuzzer struct {
 	logger        *Logger
 	network       *Network
 	fuzzerType    FuzzerType
+	mutationType  mutationType
 	scheduleQueue []*Trace
 	stats         *Stats
 	random        *rand.Rand
@@ -68,15 +78,17 @@ type Fuzzer struct {
 	mutator       Mutator
 }
 
-func NewFuzzer(config FuzzerConfig, fuzzerType FuzzerType) (*Fuzzer, error) {
+func NewFuzzer(config FuzzerConfig, fuzzerType FuzzerType, mutationType mutationType) (*Fuzzer, error) {
 	f := &Fuzzer{
 		config:        config,
 		logger:        NewLogger(),
 		fuzzerType:    fuzzerType,
+		mutationType:  mutationType,
 		scheduleQueue: make([]*Trace, 0),
 		stats: &Stats{
 			Coverages:     make([]int, 0),
 			Transitions:   make([]int, 0),
+			CodeCoverage:  make([]int, 0),
 			RandomTraces:  0,
 			MutatedTraces: 0,
 		},
@@ -84,15 +96,15 @@ func NewFuzzer(config FuzzerConfig, fuzzerType FuzzerType) (*Fuzzer, error) {
 	}
 	f.logger.SetLevel(config.LogLevel)
 
-	if _, err := os.Stat(config.BaseWorkingDir); err == nil {
-		os.RemoveAll(config.BaseWorkingDir)
-	}
-	os.MkdirAll(config.BaseWorkingDir, 0777)
+	// if _, err := os.Stat(config.BaseWorkingDir); err == nil {
+	// 	os.RemoveAll(config.BaseWorkingDir)
+	// }
+	// os.MkdirAll(config.BaseWorkingDir, 0777)
 
 	ctx, _ := context.WithCancel(context.Background())
 	f.network = NewNetwork(ctx, config.NetworkPort, config.ClusterConfig.ServerType, f.logger.With(LogParams{"type": "network"}))
 	addr := fmt.Sprintf("localhost:%d", config.TLCPort)
-	f.guider = NewGuider(fuzzerType, addr, config.BaseWorkingDir)
+	f.guider = NewGuider(fuzzerType, addr, config.BaseWorkingDir, config.jacocoFile, config.jacocoOutput)
 	f.mutator = CombineMutators(NewSwapCrashNodeMutator(1, f.random), NewSwapNodeMutator(20, f.random), NewSwapMaxMessagesMutator(20, f.random))
 	f.logger.Debug("Initialized fuzzer")
 
@@ -248,36 +260,59 @@ func (f *Fuzzer) Run() {
 		var newStates bool
 		var weight int
 		var numNewTransitions int
+		var numNewLines int
 		// for _, event := range eventTrace.Events {
 		// 	f.logger.Info(event.Name)
 		// }
 		if f.guider != nil {
-			newStates, weight, numNewTransitions = f.guider.Check("states", schedule, eventTrace, true)
+			newStates, weight, numNewTransitions, numNewLines = f.guider.Check("states", schedule, eventTrace, true)
 		}
-		fmt.Printf("New states: %t, weight: %d, numNewTransitions: %d\n", newStates, weight, numNewTransitions)
-		if newStates && f.fuzzerType != RandomFuzzer {
-			mutatedTraces := make([]*Trace, 0)
-			for i := 0; i < weight*f.config.MutationsPerTrace; i++ {
-				// Mutate and update schedule queue
-				newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
-				if ok {
-					mutatedTraces = append(mutatedTraces, newTrace.Copy())
-				}
-			}
-			f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
-		}
+		fmt.Printf("New states: %t, weight: %d, numNewTransitions: %d, numNewLines: %d\n", newStates, weight, numNewTransitions, numNewLines)
 
-		// if numNewTransitions > 0 && f.fuzzerType != RandomFuzzer {
-		// 	mutatedTraces := make([]*Trace, 0)
-		// 	for i := 0; i < numNewTransitions*f.config.MutationsPerTrace; i++ {
-		// 		// Mutate and update schedule queue
-		// 		newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
-		// 		if ok {
-		// 			mutatedTraces = append(mutatedTraces, newTrace.Copy())
-		// 		}
-		// 	}
-		// 	f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
-		// }
+		if f.mutationType == stateCoverage {
+			// Fuzz based on new states
+			if newStates && f.fuzzerType != RandomFuzzer {
+				mutatedTraces := make([]*Trace, 0)
+				for i := 0; i < weight*f.config.MutationsPerTrace; i++ {
+					newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
+					if ok {
+						mutatedTraces = append(mutatedTraces, newTrace.Copy())
+					}
+				}
+				f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
+			}
+		} else if f.mutationType == TransitionCoverage {
+			// Fuzz based on new transitions
+			if numNewTransitions > 0 && f.fuzzerType != RandomFuzzer {
+				mutatedTraces := make([]*Trace, 0)
+				for i := 0; i < numNewTransitions*f.config.MutationsPerTrace; i++ {
+					newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
+					if ok {
+						mutatedTraces = append(mutatedTraces, newTrace.Copy())
+					}
+				}
+				f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
+			}
+		} else if f.mutationType == CodeAndStateCoverage {
+			// Fuzz based on code coverage
+			if numNewLines > 0 && f.fuzzerType != RandomFuzzer {
+				mutatedTraces := make([]*Trace, 0)
+				var minNewLines = numNewLines
+				if minNewLines > 20 {
+					minNewLines = 20
+				}
+				var combinedScore = minNewLines + weight
+				for i := 0; i < combinedScore*f.config.MutationsPerTrace; i++ {
+					newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
+					if ok {
+						mutatedTraces = append(mutatedTraces, newTrace.Copy())
+					}
+				}
+				f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
+			}
+		} else {
+			panic("Unknown mutation type or not implemented")
+		}
 
 		// Update stats
 		if mutated {
@@ -287,6 +322,7 @@ func (f *Fuzzer) Run() {
 		}
 		f.stats.Coverages = append(f.stats.Coverages, f.guider.Coverage())
 		f.stats.Transitions = append(f.stats.Transitions, f.guider.TransitionCoverage())
+		f.stats.CodeCoverage = append(f.stats.CodeCoverage, CoverageDataLength())
 
 		// Save stats
 		if iter%5 == 0 {

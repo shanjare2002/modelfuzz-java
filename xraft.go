@@ -77,30 +77,34 @@ func (x *XraftNode) Cleanup() {
 
 func (x *XraftNode) Stop() error {
 	x.logger.Debug("Stopping node...")
-	if x.process == nil {
+	if x.process == nil || x.process.Process == nil {
 		return errors.New("xraft server not started")
 	}
-	// done := make(chan error, 1)
-	// go func() {
-	// 	err := x.process.Wait()
-	// 	done <- err
-	// }()
 
-	// var err error = nil
-	// select {
-	// case <- time.After(50 * time.Millisecond):
-	// 	err = x.process.Process.Kill()
-	// case err = <- done:
-	// }
-
-	var err error
-	if x.process.Process != nil {
-		err = syscall.Kill(-x.process.Process.Pid, syscall.SIGKILL)
+	// First try graceful termination to allow JaCoCo to write coverage data
+	err := syscall.Kill(-x.process.Process.Pid, syscall.SIGTERM)
+	if err != nil {
+		x.logger.Debug("SIGTERM failed, trying SIGKILL")
+		return syscall.Kill(-x.process.Process.Pid, syscall.SIGKILL)
 	}
 
-	x.process = nil
+	// Use a channel to signal process completion
+	done := make(chan error, 1)
+	go func() {
+		done <- x.process.Wait()
+	}()
 
-	return err
+	// Wait for either process completion or timeout
+	select {
+	case err := <-done:
+		x.process = nil
+		return err
+	case <-time.After(20 * time.Second):
+		x.logger.Debug("Process still running, sending SIGKILL")
+		err := syscall.Kill(-x.process.Process.Pid, syscall.SIGKILL)
+		x.process = nil
+		return err
+	}
 }
 
 func (x *XraftNode) GetLogs() (string, string) {
@@ -145,6 +149,7 @@ func (c *XraftClient) SendRequest() {
 
 	select {
 	case <-time.After(2 * time.Second):
+		c.logger.Debug("Client request timed out, sending SIGKILL")
 		syscall.Kill(-process.Process.Pid, syscall.SIGKILL)
 	default:
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -16,22 +17,47 @@ func main() {
 	fmt.Println("Random seed: " + argsWithoutProg[0])
 
 	var wg sync.WaitGroup
-	// for i := 0; i <= 2; i++ {
+	var horizon = 200
+	javaToolOptions := os.Getenv("JAVA_TOOL_OPTIONS")
+	var destFile = ""
+	var codeCoverage = false
+	if javaToolOptions != "" {
+		codeCoverage = true
+		options := strings.Split(javaToolOptions, ",")
+		for _, opt := range options {
+			if strings.HasPrefix(opt, "destfile=") {
+				destFile = strings.TrimPrefix(opt, "destfile=")
+				break
+			}
+		}
+	}
+
+	var BaseWorkingDir = "./output/" + ModelFuzz.String()
+	var jacocoFile = ""
+	var jacocoOutput = ""
+	if codeCoverage {
+		jacocoFile = destFile
+		fmt.Println("Jacoco file: " + jacocoFile + "\n")
+		jacocoOutput = BaseWorkingDir + "/jacoco/" + "jacocoOutput.xml"
+	}
+
 	config := FuzzerConfig{
 		// TimeBudget:			60,
-		Horizon:           200,
-		Iterations:        2,
+		Horizon:           horizon,
+		Iterations:        1,
 		NumNodes:          numNodes,
 		LogLevel:          logLevel,
-		NetworkPort:       7074,                             // + i,
-		BaseWorkingDir:    "./output/" + ModelFuzz.String(), // FuzzerType(i).String(),
+		NetworkPort:       7074,           // + i,
+		BaseWorkingDir:    BaseWorkingDir, // FuzzerType(i).String(),
 		RatisDataDir:      "./data",
+		jacocoFile:        jacocoFile,
+		jacocoOutput:      jacocoOutput,
 		MutationsPerTrace: 3,
-		SeedPopulation:    20,
-		NumRequests:       3,
-		NumCrashes:        0,
-		MaxMessages:       5,
-		ReseedFrequency:   200,
+		SeedPopulation:    10,
+		NumRequests:       horizon / 20,
+		NumCrashes:        horizon / 50,
+		MaxMessages:       3,
+		ReseedFrequency:   100,
 		RandomSeed:        seed,
 
 		ClusterConfig: &ClusterConfig{
@@ -56,7 +82,27 @@ func main() {
 	}
 	os.MkdirAll(config.BaseWorkingDir, 0777)
 
-	fuzzer, err := NewFuzzer(config, ModelFuzz)
+	if codeCoverage {
+		var baseJacoco = config.BaseWorkingDir + "/jacoco/"
+
+		// Create directory for jacoco files
+		if _, err := os.Stat(baseJacoco); err == nil {
+			os.RemoveAll(baseJacoco)
+		}
+		os.MkdirAll(baseJacoco, 0777)
+
+		// Create jacoco files
+		if _, err := os.Stat(config.jacocoFile); err == nil {
+			os.Remove(config.jacocoFile)
+		}
+		os.Create(config.jacocoFile)
+		if _, err := os.Stat(config.jacocoOutput); err == nil {
+			os.Remove(config.jacocoOutput)
+		}
+		os.Create(config.jacocoOutput)
+	}
+
+	fuzzer, err := NewFuzzer(config, config.ClusterConfig.FuzzerType, CodeAndStateCoverage)
 	if err != nil {
 		fmt.Errorf("Could not create fuzzer %e", err)
 		return
