@@ -16,6 +16,8 @@ func main() {
 	seed, _ := strconv.Atoi(argsWithoutProg[0])
 	fmt.Println("Random seed: " + argsWithoutProg[0])
 
+	os.Setenv("JAVA_TOOL_OPTIONS", "-javaagent:./jacocoagent.jar=output=file,destfile=./output/modelfuzz/jacoco/jacocoRun.exec,append=true,dumponexit=true")
+
 	var wg sync.WaitGroup
 	var horizon = 200
 	javaToolOptions := os.Getenv("JAVA_TOOL_OPTIONS")
@@ -44,7 +46,7 @@ func main() {
 	config := FuzzerConfig{
 		// TimeBudget:			60,
 		Horizon:           horizon,
-		Iterations:        1,
+		Iterations:        1000,
 		NumNodes:          numNodes,
 		LogLevel:          logLevel,
 		NetworkPort:       7074,           // + i,
