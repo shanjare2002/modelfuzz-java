@@ -117,14 +117,13 @@ func (t *TLCStateGuider) Check(iter string, trace *Trace, eventTrace *EventTrace
 		if t.jacocoOutput != "" {
 			// Generate XML report if jacocoFile and jacocoOutput are provided
 			if err := t.generateXMLReport(); err != nil {
-				panic(fmt.Sprintf("failed to generate XML report: %v", err))
+				fmt.Printf("failed to generate XML report: %v", err)
 			}
 			numNewLines, err = parseCoverageAndUpdate(t.jacocoOutput)
 			if err != nil {
-				panic(fmt.Sprintf("failed to parse coverage: %v", err))
+				fmt.Printf("failed to parse coverage: %v", err)
 			}
 		}
-
 	}
 
 	return numNewStates != 0, numNewStates, numNewTransitions, numNewLines

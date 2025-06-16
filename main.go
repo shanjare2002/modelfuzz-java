@@ -19,7 +19,6 @@ func main() {
 	os.Setenv("JAVA_TOOL_OPTIONS", "-javaagent:./jacocoagent.jar=output=file,destfile=./output/modelfuzz/jacoco/jacocoRun.exec,append=true,dumponexit=true")
 
 	var wg sync.WaitGroup
-	var horizon = 200
 	javaToolOptions := os.Getenv("JAVA_TOOL_OPTIONS")
 	var destFile = ""
 	var codeCoverage = false
@@ -43,10 +42,11 @@ func main() {
 		jacocoOutput = BaseWorkingDir + "/jacoco/" + "jacocoOutput.xml"
 	}
 
+	var horizon = 200
 	config := FuzzerConfig{
 		// TimeBudget:			60,
 		Horizon:           horizon,
-		Iterations:        1000,
+		Iterations:        200,
 		NumNodes:          numNodes,
 		LogLevel:          logLevel,
 		NetworkPort:       7074,           // + i,
@@ -54,11 +54,11 @@ func main() {
 		RatisDataDir:      "./data",
 		jacocoFile:        jacocoFile,
 		jacocoOutput:      jacocoOutput,
-		MutationsPerTrace: 3,
-		SeedPopulation:    10,
-		NumRequests:       horizon / 20,
-		NumCrashes:        horizon / 50,
-		MaxMessages:       3,
+		MutationsPerTrace: 5, // 5 and 10
+		SeedPopulation:    20,
+		NumRequests:       20, // 20 and 50
+		NumCrashes:        5,  // 5 and 10
+		MaxMessages:       20, // 20 and 50
 		ReseedFrequency:   100,
 		RandomSeed:        seed,
 

@@ -51,6 +51,20 @@ func (x *XraftNode) Create() {
 
 	x.process = exec.Command("bash", serverArgs...)
 	x.process.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	env := os.Environ()
+
+	// Make Jacoco file unique per node id
+	cwd, err := os.Getwd()
+	if err != nil {
+		x.logger.Debug("Failed to get current working directory")
+	} else {
+		x.logger.Debug("Current working directory: " + cwd)
+	}
+	jacocoFile := fmt.Sprintf("%s/output/modelfuzz/jacoco/jacocoRun.exec", cwd)
+	jacocoEnv := fmt.Sprintf("-javaagent:%s/jacocoagent.jar=output=file,destfile=%s,append=true,dumponexit=true", cwd, jacocoFile)
+	fmt.Println("Jacoco environment variable: " + jacocoEnv)
+	env = append(env, "JAVA_TOOL_OPTIONS="+jacocoEnv)
+	x.process.Env = env
 
 	if x.stdout == nil {
 		x.stdout = new(bytes.Buffer)

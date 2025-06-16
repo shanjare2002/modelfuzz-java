@@ -273,6 +273,9 @@ func (f *Fuzzer) Run() {
 			// Fuzz based on new states
 			if newStates && f.fuzzerType != RandomFuzzer {
 				mutatedTraces := make([]*Trace, 0)
+				if weight > 10 {
+					weight = 10
+				}
 				for i := 0; i < weight*f.config.MutationsPerTrace; i++ {
 					newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
 					if ok {
@@ -285,6 +288,9 @@ func (f *Fuzzer) Run() {
 			// Fuzz based on new transitions
 			if numNewTransitions > 0 && f.fuzzerType != RandomFuzzer {
 				mutatedTraces := make([]*Trace, 0)
+				if numNewTransitions > 10 {
+					numNewTransitions = 10
+				}
 				for i := 0; i < numNewTransitions*f.config.MutationsPerTrace; i++ {
 					newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
 					if ok {
@@ -295,13 +301,13 @@ func (f *Fuzzer) Run() {
 			}
 		} else if f.mutationType == CodeAndStateCoverage {
 			// Fuzz based on code coverage
-			if numNewLines > 0 && f.fuzzerType != RandomFuzzer {
+			if (numNewLines > 0 || weight > 0) && f.fuzzerType != RandomFuzzer {
 				mutatedTraces := make([]*Trace, 0)
 				var minNewLines = numNewLines
-				if minNewLines > 20 {
-					minNewLines = 20
-				}
 				var combinedScore = minNewLines + weight
+				if combinedScore > 10 {
+					minNewLines = 10
+				}
 				for i := 0; i < combinedScore*f.config.MutationsPerTrace; i++ {
 					newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
 					if ok {
