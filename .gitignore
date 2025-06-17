@@ -23,9 +23,13 @@ go.work.sum
 
 # env file
 .env
+*.csv
+*.jar
 
 output/
 data/
+finalOutputs/
+finalOutputs/graphs
 
 modelfuzz-xraft
 modelfuzz-java

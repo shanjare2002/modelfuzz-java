@@ -56,9 +56,9 @@ func main() {
 		jacocoOutput:      jacocoOutput,
 		MutationsPerTrace: 5, // 5 and 10
 		SeedPopulation:    20,
-		NumRequests:       20, // 20 and 50
+		NumRequests:       30, // 20 and 30
 		NumCrashes:        5,  // 5 and 10
-		MaxMessages:       20, // 20 and 50
+		MaxMessages:       20, // 20 and 30
 		ReseedFrequency:   100,
 		RandomSeed:        seed,
 
