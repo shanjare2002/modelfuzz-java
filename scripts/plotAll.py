@@ -81,7 +81,7 @@ def plot_all_results():
 
     def save_plot(fig, name):
         fig.tight_layout()
-        fig.savefig(graphs_dir / f"{name}.png")
+        fig.savefig(graphs_dir / f"{name}.pdf")
         plt.close(fig)
 
     # --- Plot 1: Coverage Growth Over Time ---
