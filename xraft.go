@@ -62,7 +62,6 @@ func (x *XraftNode) Create() {
 	}
 	jacocoFile := fmt.Sprintf("%s/output/modelfuzz/jacoco/jacocoRun.exec", cwd)
 	jacocoEnv := fmt.Sprintf("-javaagent:%s/jacocoagent.jar=output=file,destfile=%s,append=true,dumponexit=true", cwd, jacocoFile)
-	fmt.Println("Jacoco environment variable: " + jacocoEnv)
 	env = append(env, "JAVA_TOOL_OPTIONS="+jacocoEnv)
 	x.process.Env = env
 
@@ -95,7 +94,6 @@ func (x *XraftNode) Stop() error {
 		return errors.New("xraft server not started")
 	}
 
-	// First try graceful termination to allow JaCoCo to write coverage data
 	err := syscall.Kill(-x.process.Process.Pid, syscall.SIGTERM)
 	if err != nil {
 		x.logger.Debug("SIGTERM failed, trying SIGKILL")
@@ -104,7 +102,6 @@ func (x *XraftNode) Stop() error {
 		return err
 	}
 
-	// Wait for termination or timeout
 	done := make(chan error, 1)
 	go func() {
 		done <- x.process.Wait()
@@ -158,10 +155,8 @@ func (c *XraftClient) SendRequest() {
 	}
 
 	process := exec.Command("bash", clientArgs...)
-	// Get current environment variables
 	env := os.Environ()
 
-	// Make Jacoco file unique per node id
 	cwd, err := os.Getwd()
 	if err != nil {
 		c.logger.Debug("Failed to get current working directory")
@@ -170,13 +165,9 @@ func (c *XraftClient) SendRequest() {
 	}
 	jacocoFile := fmt.Sprintf("%s/output/modelfuzz/jacoco/jacocoRun.exec", cwd)
 	jacocoEnv := fmt.Sprintf("-javaagent:%s/jacocoagent.jar=output=file,destfile=%s,append=true,dumponexit=true", cwd, jacocoFile)
-	fmt.Println("Jacoco environment variable: " + jacocoEnv)
 	env = append(env, "JAVA_TOOL_OPTIONS="+jacocoEnv)
-
-	// Assign modified env to the process
 	process.Env = env
 
-	// cmdDone := make(chan error, 1)
 	process.Start()
 
 	select {

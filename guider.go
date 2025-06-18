@@ -36,12 +36,9 @@ type TLCStateGuider struct {
 	statesMap        map[int64]bool
 	tlcClient        *TLCClient
 	stateTransitions map[int64][]int64
-	// objectPath      string
-	// gCovProgramPath string
-
-	recordPath   string
-	jacocoFile   string
-	jacocoOutput string
+	recordPath       string
+	jacocoFile       string
+	jacocoOutput     string
 }
 
 var _ Guider = &TLCStateGuider{}
@@ -115,7 +112,6 @@ func (t *TLCStateGuider) Check(iter string, trace *Trace, eventTrace *EventTrace
 		}
 
 		if t.jacocoOutput != "" {
-			// Generate XML report if jacocoFile and jacocoOutput are provided
 			if err := t.generateXMLReport(); err != nil {
 				fmt.Printf("failed to generate XML report: %v", err)
 			}
@@ -256,6 +252,7 @@ func newEventTrace(events *EventTrace) *eventTrace {
 	return eTrace
 }
 
+// ------- Function for code coverage -------
 func (t *TLCStateGuider) generateXMLReport() error {
 	cmd := exec.Command("java", "-jar", "jacococli.jar", "report", t.jacocoFile,
 		"--classfiles", "../xraft-controlled/xraft-core/target/classes",
@@ -276,7 +273,6 @@ type Line struct {
 	CoveredBranches int `xml:"cb,attr"`
 }
 
-// ------- Function for code coverage -------
 var coverageData = map[string]map[int]struct{}{}
 
 type SourceFile struct {
@@ -311,7 +307,6 @@ func parseCoverageAndUpdate(path string) (int, error) {
 		for _, src := range pkg.SourceFiles {
 			filePath := filepath.Join(pkg.Name, src.Name)
 
-			// Ensure map for this file exists
 			if _, ok := coverageData[filePath]; !ok {
 				coverageData[filePath] = map[int]struct{}{}
 			}

@@ -14,7 +14,6 @@ func main() {
 
 	argsWithoutProg := os.Args[1:]
 	seed, _ := strconv.Atoi(argsWithoutProg[0])
-	fmt.Println("Random seed: " + argsWithoutProg[0])
 
 	os.Setenv("JAVA_TOOL_OPTIONS", "-javaagent:./jacocoagent.jar=output=file,destfile=./output/modelfuzz/jacoco/jacocoRun.exec,append=true,dumponexit=true")
 
@@ -38,7 +37,6 @@ func main() {
 	var jacocoOutput = ""
 	if codeCoverage {
 		jacocoFile = destFile
-		fmt.Println("Jacoco file: " + jacocoFile + "\n")
 		jacocoOutput = BaseWorkingDir + "/jacoco/" + "jacocoOutput.xml"
 	}
 
@@ -56,8 +54,8 @@ func main() {
 		jacocoOutput:      jacocoOutput,
 		MutationsPerTrace: 5, // 5 and 10
 		SeedPopulation:    20,
-		NumRequests:       30, // 20 and 30
-		NumCrashes:        5,  // 5 and 10
+		NumRequests:       20, // 20 and 30
+		NumCrashes:        10, // 5 and 10
 		MaxMessages:       20, // 20 and 30
 		ReseedFrequency:   100,
 		RandomSeed:        seed,
@@ -87,13 +85,11 @@ func main() {
 	if codeCoverage {
 		var baseJacoco = config.BaseWorkingDir + "/jacoco/"
 
-		// Create directory for jacoco files
 		if _, err := os.Stat(baseJacoco); err == nil {
 			os.RemoveAll(baseJacoco)
 		}
 		os.MkdirAll(baseJacoco, 0777)
 
-		// Create jacoco files
 		if _, err := os.Stat(config.jacocoFile); err == nil {
 			os.Remove(config.jacocoFile)
 		}
@@ -104,7 +100,7 @@ func main() {
 		os.Create(config.jacocoOutput)
 	}
 
-	fuzzer, err := NewFuzzer(config, config.ClusterConfig.FuzzerType, CodeAndStateCoverage)
+	fuzzer, err := NewFuzzer(config, config.ClusterConfig.FuzzerType, stateCoverage)
 	if err != nil {
 		fmt.Errorf("Could not create fuzzer %e", err)
 		return
