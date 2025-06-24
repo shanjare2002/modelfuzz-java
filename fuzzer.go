@@ -22,7 +22,7 @@ const (
 )
 
 const (
-	stateCoverage        mutationType = 0
+	StateCoverage        mutationType = 0
 	TransitionCoverage   mutationType = 1
 	CodeAndStateCoverage mutationType = 2
 )
@@ -42,7 +42,7 @@ func (ft FuzzerType) String() string {
 
 func (mt mutationType) String() string {
 	switch mt {
-	case stateCoverage:
+	case StateCoverage:
 		return "stateCoverage"
 	case TransitionCoverage:
 		return "transitionCoverage"
@@ -55,9 +55,10 @@ func (mt mutationType) String() string {
 
 type FuzzerConfig struct {
 	// TimeBudget			int
-	Horizon    int
-	Iterations int
-	NumNodes   int
+	maxMutations int
+	Horizon      int
+	Iterations   int
+	NumNodes     int
 	// RecordPath			string
 	LogLevel       string
 	NetworkPort    int
@@ -285,7 +286,7 @@ func (f *Fuzzer) Run() {
 		var shouldMutate bool
 
 		switch f.mutationType {
-		case stateCoverage:
+		case StateCoverage:
 			shouldMutate = newStates && f.fuzzerType != RandomFuzzer
 			mutationScore = weight
 		case TransitionCoverage:
@@ -299,8 +300,9 @@ func (f *Fuzzer) Run() {
 		}
 
 		if shouldMutate {
-			if mutationScore > 20 {
-				mutationScore = 20
+			fmt.Println("max mutations per schedule:", f.config.maxMutations)
+			if mutationScore > f.config.maxMutations {
+				mutationScore = f.config.maxMutations
 			}
 
 			mutatedTraces := make([]*Trace, 0)

@@ -40,6 +40,7 @@ func main() {
 	var BaseWorkingDir = "./output/" + fuzzerType.String()
 	jacocoOutput := BaseWorkingDir + "/jacoco/jacocoOutput.xml"
 	config := FuzzerConfig{
+		maxMutations:      20,
 		Horizon:           200,
 		Iterations:        5,
 		NumNodes:          numNodes,

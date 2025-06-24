@@ -77,7 +77,20 @@ go build
 
 Example configuration is given in the *main.go* file
 
-### Parameters
+# Additions of Martijn and Shantanu
+## Mutation strategy
+ 
+In the `main.go` file, you can select a strategy from three options: `CodeAndStateCoverage`, `StateCoverage`, and `TransitionCoverage`. This choice determines the number of mutations the fuzzer generates during execution. You can cap the number of mutations in the `main.go` file, by adjusting the `maxMutations` parameter.
 
--TODO
+## Saving output
+
+After an experiment finishes, the user is prompted to specify the name of the directory where the output should be saved. The output is always stored inside the `finalOutputs` folder, within a subdirectory corresponding to the chosen mutation strategy. The exact name of this subdirectory is determined by the user’s input.
+
+## Visualisation
+To visualize the data, there are two scripts available in the `scripts` directory.
+
+- Use the `createPlots.py` script to generate plots from your experiment data. To prepare for this, copy all relevant experiment output data into a single directory named `finalOutputs`. Inside `finalOutputs`, each subdirectory should contain the original output data from one or more experiments. When you run `createPlots.py`, it will process every subdirectory within `finalOutputs` and create a new directory named `graphs` inside each one. This `graphs` directory will contain all the generated plots based on the output data found in that specific subdirectory.
+
+- Use the `plotLive.py` script during an experiment to visualize data in real time. When run, this Python program will read the data being saved in the `output` directory of the running experiment and generate live plots based on that data.
+
 
