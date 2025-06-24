@@ -3,65 +3,62 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 )
 
 func main() {
-	logLevel := "debug"
-	numNodes := 3
-
 	argsWithoutProg := os.Args[1:]
 	seed, _ := strconv.Atoi(argsWithoutProg[0])
 
-	os.Setenv("JAVA_TOOL_OPTIONS", "-javaagent:./jacocoagent.jar=output=file,destfile=./output/modelfuzz/jacoco/jacocoRun.exec,append=true,dumponexit=true")
+	logLevel := "debug"
+	numNodes := 3
+	fuzzerType := ModelFuzz
+	strategy := CodeAndStateCoverage
+
+	// Setup JaCoCo
+	baseWorkingDir := "./output/" + fuzzerType.String()
+	jacocoDestFile := baseWorkingDir + "/jacoco/jacocoRun.exec"
+	jacocoAgent := fmt.Sprintf("-javaagent:./jacocoagent.jar=output=file,destfile=%s,append=true,dumponexit=true", jacocoDestFile)
+	os.Setenv("JAVA_TOOL_OPTIONS", jacocoAgent)
 
 	var wg sync.WaitGroup
+
+	// Parse JaCoCo file
 	javaToolOptions := os.Getenv("JAVA_TOOL_OPTIONS")
-	var destFile = ""
-	var codeCoverage = false
-	if javaToolOptions != "" {
-		codeCoverage = true
-		options := strings.Split(javaToolOptions, ",")
-		for _, opt := range options {
-			if strings.HasPrefix(opt, "destfile=") {
-				destFile = strings.TrimPrefix(opt, "destfile=")
-				break
-			}
+	var jacocoFile string
+	for _, opt := range strings.Split(javaToolOptions, ",") {
+		if strings.HasPrefix(opt, "destfile=") {
+			jacocoFile = strings.TrimPrefix(opt, "destfile=")
+			break
 		}
 	}
 
-	var BaseWorkingDir = "./output/" + ModelFuzz.String()
-	var jacocoFile = ""
-	var jacocoOutput = ""
-	if codeCoverage {
-		jacocoFile = destFile
-		jacocoOutput = BaseWorkingDir + "/jacoco/" + "jacocoOutput.xml"
-	}
-
-	var horizon = 200
+	// Configure both fuzzer and cluster
+	var BaseWorkingDir = "./output/" + fuzzerType.String()
+	jacocoOutput := BaseWorkingDir + "/jacoco/jacocoOutput.xml"
 	config := FuzzerConfig{
-		// TimeBudget:			60,
-		Horizon:           horizon,
-		Iterations:        200,
+		Horizon:           200,
+		Iterations:        5,
 		NumNodes:          numNodes,
 		LogLevel:          logLevel,
-		NetworkPort:       7074,           // + i,
-		BaseWorkingDir:    BaseWorkingDir, // FuzzerType(i).String(),
+		NetworkPort:       7074,
+		BaseWorkingDir:    BaseWorkingDir,
 		RatisDataDir:      "./data",
 		jacocoFile:        jacocoFile,
 		jacocoOutput:      jacocoOutput,
-		MutationsPerTrace: 5, // 5 and 10
+		MutationsPerTrace: 5,
 		SeedPopulation:    20,
-		NumRequests:       20, // 20 and 30
-		NumCrashes:        10, // 5 and 10
-		MaxMessages:       20, // 20 and 30
-		ReseedFrequency:   100,
+		NumRequests:       20,
+		NumCrashes:        5,
+		MaxMessages:       20,
+		ReseedFrequency:   250,
 		RandomSeed:        seed,
 
 		ClusterConfig: &ClusterConfig{
-			FuzzerType:          ModelFuzz, // FuzzerType(i),
+			FuzzerType:          fuzzerType,
 			NumNodes:            numNodes,
 			ServerType:          Xraft,
 			XraftServerPath:     "../xraft-controlled/xraft-kvstore/target/xraft-kvstore-0.1.0-SNAPSHOT-bin/xraft-kvstore-0.1.0-SNAPSHOT/bin/xraft-kvstore",
@@ -82,25 +79,7 @@ func main() {
 	}
 	os.MkdirAll(config.BaseWorkingDir, 0777)
 
-	if codeCoverage {
-		var baseJacoco = config.BaseWorkingDir + "/jacoco/"
-
-		if _, err := os.Stat(baseJacoco); err == nil {
-			os.RemoveAll(baseJacoco)
-		}
-		os.MkdirAll(baseJacoco, 0777)
-
-		if _, err := os.Stat(config.jacocoFile); err == nil {
-			os.Remove(config.jacocoFile)
-		}
-		os.Create(config.jacocoFile)
-		if _, err := os.Stat(config.jacocoOutput); err == nil {
-			os.Remove(config.jacocoOutput)
-		}
-		os.Create(config.jacocoOutput)
-	}
-
-	fuzzer, err := NewFuzzer(config, config.ClusterConfig.FuzzerType, stateCoverage)
+	fuzzer, err := NewFuzzer(config, config.ClusterConfig.FuzzerType, strategy)
 	if err != nil {
 		fmt.Errorf("Could not create fuzzer %e", err)
 		return
@@ -111,7 +90,35 @@ func main() {
 		fuzzer.Run()
 		wg.Done()
 	}()
-	// }
+
 	wg.Wait()
 
+	// Ask user to move to corresponding directory
+	fmt.Print("Move output to finalOutputs/" + strategy.String() + "? [y/n]: ")
+	var input string
+	fmt.Scanln(&input)
+	if strings.ToLower(input) == "y" {
+
+		// Create the strategy directory if it doesn't exist
+		finalOutputsDir := "./finalOutputs/" + strategy.String()
+		if _, err := os.Stat(finalOutputsDir); os.IsNotExist(err) {
+			os.MkdirAll(finalOutputsDir, 0777)
+		}
+
+		// Get the output directory name from the user
+		fmt.Print("How to name the output directory? ")
+		var outputDir string
+		fmt.Scanln(&outputDir)
+
+		// Move the output directory to finalOutputs
+		finalDir := "./finalOutputs/" + strategy.String() + "/" + outputDir
+		os.RemoveAll(finalDir)
+		baseDir := filepath.Dir(config.BaseWorkingDir)
+		err := os.Rename(baseDir, finalDir)
+		if err != nil {
+			fmt.Printf("Failed to move output: %v\n", err)
+		} else {
+			fmt.Println("Output moved to", finalDir)
+		}
+	}
 }

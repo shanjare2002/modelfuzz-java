@@ -40,6 +40,19 @@ func (ft FuzzerType) String() string {
 	}
 }
 
+func (mt mutationType) String() string {
+	switch mt {
+	case stateCoverage:
+		return "stateCoverage"
+	case TransitionCoverage:
+		return "transitionCoverage"
+	case CodeAndStateCoverage:
+		return "codeAndStateCoverage"
+	default:
+		return fmt.Sprintf("%d", int(mt))
+	}
+}
+
 type FuzzerConfig struct {
 	// TimeBudget			int
 	Horizon    int
@@ -267,57 +280,36 @@ func (f *Fuzzer) Run() {
 		if f.guider != nil {
 			newStates, weight, numNewTransitions, numNewLines = f.guider.Check("states", schedule, eventTrace, true)
 		}
-		fmt.Printf("New states: %t, weight: %d, numNewTransitions: %d, numNewLines: %d\n", newStates, weight, numNewTransitions, numNewLines)
 
-		if f.mutationType == stateCoverage {
-			// Fuzz based on new states
-			if newStates && f.fuzzerType != RandomFuzzer {
-				mutatedTraces := make([]*Trace, 0)
-				if weight > 10 {
-					weight = 10
-				}
-				for i := 0; i < weight*f.config.MutationsPerTrace; i++ {
-					newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
-					if ok {
-						mutatedTraces = append(mutatedTraces, newTrace.Copy())
-					}
-				}
-				f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
-			}
-		} else if f.mutationType == TransitionCoverage {
-			// Fuzz based on new transitions
-			if numNewTransitions > 0 && f.fuzzerType != RandomFuzzer {
-				mutatedTraces := make([]*Trace, 0)
-				if numNewTransitions > 10 {
-					numNewTransitions = 10
-				}
-				for i := 0; i < numNewTransitions*f.config.MutationsPerTrace; i++ {
-					newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
-					if ok {
-						mutatedTraces = append(mutatedTraces, newTrace.Copy())
-					}
-				}
-				f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
-			}
-		} else if f.mutationType == CodeAndStateCoverage {
-			// Fuzz based on code coverage
-			if (numNewLines > 0 || weight > 0) && f.fuzzerType != RandomFuzzer {
-				mutatedTraces := make([]*Trace, 0)
-				var minNewLines = numNewLines
-				var combinedScore = minNewLines + weight
-				if combinedScore > 10 {
-					minNewLines = 10
-				}
-				for i := 0; i < combinedScore*f.config.MutationsPerTrace; i++ {
-					newTrace, ok := f.mutator.Mutate(schedule, eventTrace)
-					if ok {
-						mutatedTraces = append(mutatedTraces, newTrace.Copy())
-					}
-				}
-				f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
-			}
-		} else {
+		var mutationScore int
+		var shouldMutate bool
+
+		switch f.mutationType {
+		case stateCoverage:
+			shouldMutate = newStates && f.fuzzerType != RandomFuzzer
+			mutationScore = weight
+		case TransitionCoverage:
+			shouldMutate = numNewTransitions > 0 && f.fuzzerType != RandomFuzzer
+			mutationScore = numNewTransitions
+		case CodeAndStateCoverage:
+			shouldMutate = (numNewLines > 0 || weight > 0) && f.fuzzerType != RandomFuzzer
+			mutationScore = numNewLines + weight
+		default:
 			panic("Unknown mutation type or not implemented")
+		}
+
+		if shouldMutate {
+			if mutationScore > 20 {
+				mutationScore = 20
+			}
+
+			mutatedTraces := make([]*Trace, 0)
+			for i := 0; i < mutationScore*f.config.MutationsPerTrace; i++ {
+				if newTrace, ok := f.mutator.Mutate(schedule, eventTrace); ok {
+					mutatedTraces = append(mutatedTraces, newTrace.Copy())
+				}
+			}
+			f.scheduleQueue = append(f.scheduleQueue, mutatedTraces...)
 		}
 
 		// Update stats

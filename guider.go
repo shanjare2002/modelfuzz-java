@@ -252,7 +252,7 @@ func newEventTrace(events *EventTrace) *eventTrace {
 	return eTrace
 }
 
-// ------- Function for code coverage -------
+// ------- Functions for code coverage -------
 func (t *TLCStateGuider) generateXMLReport() error {
 	cmd := exec.Command("java", "-jar", "jacococli.jar", "report", t.jacocoFile,
 		"--classfiles", "../xraft-controlled/xraft-core/target/classes",

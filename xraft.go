@@ -53,7 +53,6 @@ func (x *XraftNode) Create() {
 	x.process.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	env := os.Environ()
 
-	// Make Jacoco file unique per node id
 	cwd, err := os.Getwd()
 	if err != nil {
 		x.logger.Debug("Failed to get current working directory")
